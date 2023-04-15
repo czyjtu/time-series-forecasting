@@ -23,28 +23,28 @@ DATA_PATH = {
 
 def load_sunspots(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(DATA_PATH[DATASET.SUNSPOTS], index_col=0)
-    df["ts"] = df.Date.astype("datetime64[m]")
+    df["ds"] = df.Date.astype("datetime64[m]")
     df["y"] = df["sunspots"]
-    df = df[["ts", "y"]].sort_values(["ts"]).reset_index(drop=True)
+    df = df[["ds", "y"]].sort_values(["ds"]).reset_index(drop=True)
     train_size = int(df.shape[0] * (1 - val_frac))
     return df.iloc[:train_size], df.iloc[train_size:]
 
 
 def load_electricity(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(DATA_PATH[DATASET.ELECTRICITY])
-    df["ts"] = [pd.Timestamp(f"{d} {t}") for d, t in zip(df["Date"], df["Time"])]
+    df["ds"] = [pd.Timestamp(f"{d} {t}") for d, t in zip(df["Date"], df["Time"])]
     df["y"] = df["Consumption Amount (MWh)"].apply(
         lambda x: float(x.replace(".", "").replace(",", "."))
     )
     df = df[df["y"] > 10000]
-    df = df[["ts", "y"]].sort_values(["ts"]).reset_index(drop=True)
+    df = df[["ds", "y"]].sort_values(["ds"]).reset_index(drop=True)
     train_size = int(df.shape[0] * (1 - val_frac))
     return df.iloc[:train_size], df.iloc[train_size:]
 
 
 def load_mackey_glass(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(DATA_PATH[DATASET.MACKEY_GLASS], sep=" ", index_col=0, names=["y"])
-    df["ts"] = pd.date_range(start="01-01-2000", periods=df.shape[0], freq="D")
+    df["ds"] = pd.date_range(start="01-01-2000", periods=df.shape[0], freq="D")
     train_size = int(df.shape[0] * (1 - val_frac))
     return df.iloc[:train_size], df.iloc[train_size:]
 
