@@ -66,6 +66,8 @@ class DataLoader:
             raise ValueError(f"Unknown dataset: {self.name}")
 
         self._scaler: MinMaxScaler | None = None
+        self._y_train_df: pd.DataFrame | None = None
+        self._y_val_df: pd.DataFrame | None = None
         self._X_train: np.ndarray | None = None
         self._y_train: np.ndarray | None = None
         self._y_val: np.ndarray | None = None
@@ -85,6 +87,20 @@ class DataLoader:
     @property
     def val_df(self) -> pd.DataFrame:
         return self.df_val
+
+    @property
+    def y_train_df(self) -> pd.DataFrame:
+        if self._y_train_df is None:
+            self._y_train_df = self.df_train.copy()
+            self._y_train_df.y = self.scaler.transform(self.df_train.y.values.reshape(-1, 1))
+        return self._y_train_df
+
+    @property
+    def y_val_df(self) -> pd.DataFrame:
+        if self._y_val_df is None:
+            self._y_val_df = self.df_val.copy()
+            self._y_val_df.y = self.scaler.transform(self.df_val.y.values.reshape(-1, 1))
+        return self._y_val_df
 
     @property
     def scaler(self) -> MinMaxScaler:
