@@ -7,6 +7,8 @@ from auto_esn.esn.reservoir.initialization import (
     WeightInitializer,
 )
 import torch as th
+from statsmodels.tsa.arima.model import ARIMA
+from prophet import Prophet
 
 
 class BasePredictor(ABC):
@@ -103,3 +105,36 @@ class ESNPredictor(BasePredictor):
         self._esn.initial_state = True
         self._esn.reservoir.esn_cell.reset_hidden()
         _ = self._esn(self.X_fit)
+
+
+class SARIMAPredictor(BasePredictor):
+    def __init__(
+        self,
+        order: tuple,
+        seasonal_order: tuple = (0, 0, 0, 0), # by default without seasonality
+    ):
+        self.model_params = {"order": order, "seasonal_order": seasonal_order}
+
+        # to be set in fit method
+        self._arima: ARIMA | None = None
+        self.start_forecast: int | None = None
+
+    @property
+    def model(self) -> DeepESN:
+        if self._arima is None:
+            raise ValueError("Must call fit before model")
+        return self._arima
+
+    def fit(self, X: np.ndarray):
+        self._arima = ARIMA(X, **self.model_params).fit()
+        self.start_forecast = X.shape[0]
+
+    def forecast(self, horizon: int) -> np.ndarray:
+        if self.start_forecast is None:
+            raise ValueError("Must call fit before forecast")
+        
+        predictions = self._arima.predict(start=self.start_forecast, end=self.start_forecast+horizon)
+        return predictions
+
+    def load(self, path: str):
+        raise NotImplementedError
