@@ -12,12 +12,14 @@ class DATASET(str, Enum):
     SUNSPOTS = "sunspots"
     ELECTRICITY = "electricity"
     MACKEY_GLASS = "mackey_glass"
+    TEMPERATURE = "temperature"
 
 
 DATA_PATH = {
     DATASET.SUNSPOTS: DATA_DIR_PATH / "Sunspots.csv",
     DATASET.ELECTRICITY: DATA_DIR_PATH / "electricity.csv",
     DATASET.MACKEY_GLASS: DATA_DIR_PATH / "mg.dat",
+    DATASET.TEMPERATURE: DATA_DIR_PATH / "temperature.csv",
 }
 
 
@@ -49,6 +51,14 @@ def load_mackey_glass(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame
     return df.iloc[:train_size], df.iloc[train_size:]
 
 
+def load_temperature(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
+    df = pd.read_csv(DATA_PATH[DATASET.TEMPERATURE])
+    df["ds"] = df.ds.astype("datetime64[m]")
+    df = df[["ds", "y"]].sort_values(["ds"]).reset_index(drop=True)
+    train_size = int(df.shape[0] * (1 - val_frac))
+    return df.iloc[:train_size], df.iloc[train_size:]
+
+
 class DataLoader:
     LAG = 1
 
@@ -62,6 +72,8 @@ class DataLoader:
             self.df_train, self.df_val = load_electricity(self.val_frac)
         elif self.name == DATASET.MACKEY_GLASS:
             self.df_train, self.df_val = load_mackey_glass(self.val_frac)
+        elif self.name == DATASET.TEMPERATURE:
+            self.df_train, self.df_val = load_temperature(self.val_frac)
         else:
             raise ValueError(f"Unknown dataset: {self.name}")
 
