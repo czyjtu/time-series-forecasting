@@ -1,14 +1,16 @@
 from abc import ABC, abstractmethod, abstractproperty
 import pandas as pd
 import numpy as np
-from auto_esn.esn.esn import DeepESN
-from auto_esn.esn.reservoir.initialization import (
-    CompositeInitializer,
-    WeightInitializer,
-)
-import torch as th
-from statsmodels.tsa.arima.model import ARIMA
-from prophet import Prophet
+#from auto_esn.esn.esn import DeepESN
+#from auto_esn.esn.reservoir.initialization import (
+#    CompositeInitializer,
+#    WeightInitializer,
+#)
+#import torch as th
+#from statsmodels.tsa.arima.model import ARIMA
+#from prophet import Prophet
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
 
 
 class BasePredictor(ABC):
@@ -29,7 +31,7 @@ class BasePredictor(ABC):
         pass
 
 
-class ESNPredictor(BasePredictor):
+"""class ESNPredictor(BasePredictor):
     def __init__(
         self,
         input_size: int,
@@ -190,3 +192,178 @@ class ProphetPredictor(BasePredictor):
 
     def load(self, path: str):
         raise NotImplementedError
+"""
+
+
+class XGBoostPredictor(BasePredictor):
+    def __init__(
+            self,
+            n_estimators: int = 100,
+            max_depth: int = 5,
+            objective: str = "reg:squarederror",
+            booster: str = "gbtree",
+            include_hours: bool = True,
+            lags: dict | None = None
+    ):
+        self._xgbr = XGBRegressor(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            objective=objective,
+            booster=booster
+        )
+
+        # For features design
+        self.include_hours = include_hours
+        if lags:
+            self.lags = lags
+        
+        self.is_fitted: bool = False
+
+    @property
+    def model(self) -> XGBRegressor:
+        if self._xgbr is None:
+            raise ValueError("Must call fit before model")
+        return self._xgbr
+    
+    def fit(self, X: pd.DataFrame): # DataFrame must have `y` and `ds` columns
+        self._create_features_map(X)
+        X = self._add_time_features(X)
+        X = self._add_lag_features(X)
+        X = X.set_index(X.columns[0])
+        self._xgbr.fit(X.drop("y", axis=1), X.y)
+        self.is_fitted = True
+
+    def forecast(self, horizon: int | pd.DataFrame) -> np.ndarray: # horizon can be a DataFrame with `ds` column
+        if not self.is_fitted:
+            raise ValueError("Must call fit before forecast")
+        if isinstance(horizon, int):
+            future = None
+        else:
+            future = horizon
+        future = self._add_time_features(future)
+        future = self._add_lag_features(future)
+        future = future.set_index(future.columns[0])
+        predictions = self._xgbr.predict(future)
+        return predictions
+    
+    def load(self, path: str):
+        raise NotImplementedError
+        
+    def _create_features_map(self, X):
+        self.features_map = X.y.to_dict()
+
+    def _add_time_features(self, X):
+        X_extended = X.copy()
+
+        X = X.set_index(X.columns[0])
+    
+        if self.include_hours is True:
+            X_extended["hour"] = X.index.hour
+    
+        X_extended["dayofweek"] = X.index.dayofweek
+        X_extended["quarter"] = X.index.quarter
+        X_extended["month"] = X.index.month
+        X_extended["year"] = X.index.year
+        X_extended["dayofyear"] = X.index.dayofyear
+        X_extended["dayofmonth"] = X.index.day
+        X_extended["weekofyear"] = pd.Int64Index(X.index.isocalendar().week)
+    
+        return X_extended
+    
+    def _add_lag_features(self, X):
+        X_extended = X.copy()
+
+        X = X.set_index(X.columns[0])
+
+        for lag in self.lags.items():
+            X_extended[lag[0]] = (X.index - pd.Timedelta(lag[1])).map(self.features_map)
+        
+        return X_extended
+
+
+class LightGBMPredictor(BasePredictor):
+    def __init__(
+            self,
+            n_estimators: int = 100,
+            max_depth: int = 5,
+            objective: str = "mse",
+            boosting_type: str = "gbdt",
+            include_hours: bool = True,
+            lags: dict | None = None
+    ):
+        self._lgbmr = LGBMRegressor(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            objective=objective,
+            boosting_type=boosting_type
+        )
+
+        # For features design
+        self.include_hours = include_hours
+        if lags:
+            self.lags = lags
+        
+        self.is_fitted: bool = False
+
+    @property
+    def model(self) -> LGBMRegressor:
+        if self._xgbr is None:
+            raise ValueError("Must call fit before model")
+        return self._lgbmr
+    
+    def fit(self, X: pd.DataFrame): # DataFrame must have `y` and `ds` columns
+        self._create_features_map(X)
+        X = self._add_time_features(X)
+        X = self._add_lag_features(X)
+        X = X.set_index(X.columns[0])
+        self._lgbmr.fit(X.drop("y", axis=1), X.y)
+        self.is_fitted = True
+
+    def forecast(self, horizon: int | pd.DataFrame) -> np.ndarray: # horizon can be a DataFrame with `ds` column
+        if not self.is_fitted:
+            raise ValueError("Must call fit before forecast")
+        if isinstance(horizon, int):
+            future = None
+        else:
+            future = horizon
+        future = self._add_time_features(future)
+        future = self._add_lag_features(future)
+        future = future.set_index(future.columns[0])
+        predictions = self._lgbmr.predict(future)
+        return predictions
+    
+    def load(self, path: str):
+        raise NotImplementedError
+        
+    def _create_features_map(self, X):
+        self.features_map = X.y.to_dict()
+
+    def _add_time_features(self, X):
+        X_extended = X.copy()
+
+        X = X.set_index(X.columns[0])
+    
+        if self.include_hours is True:
+            X_extended["hour"] = X.index.hour
+    
+        X_extended["dayofweek"] = X.index.dayofweek
+        X_extended["quarter"] = X.index.quarter
+        X_extended["month"] = X.index.month
+        X_extended["year"] = X.index.year
+        X_extended["dayofyear"] = X.index.dayofyear
+        X_extended["dayofmonth"] = X.index.day
+        X_extended["weekofyear"] = pd.Int64Index(X.index.isocalendar().week)
+    
+        return X_extended
+    
+    def _add_lag_features(self, X):
+        X_extended = X.copy()
+
+        X = X.set_index(X.columns[0])
+
+        for lag in self.lags.items():
+            X_extended[lag[0]] = (X.index - pd.Timedelta(lag[1])).map(self.features_map)
+        
+        return X_extended
+
+
