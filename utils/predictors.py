@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod, abstractproperty
 import pandas as pd
 import numpy as np
-#from auto_esn.esn.esn import DeepESN
-#from auto_esn.esn.reservoir.initialization import (
-#    CompositeInitializer,
-#    WeightInitializer,
-#)
-#import torch as th
-#from statsmodels.tsa.arima.model import ARIMA
-#from prophet import Prophet
+from auto_esn.esn.esn import DeepESN
+from auto_esn.esn.reservoir.initialization import (
+    CompositeInitializer,
+    WeightInitializer,
+)
+import torch as th
+from statsmodels.tsa.arima.model import ARIMA
+from prophet import Prophet
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 
@@ -31,7 +31,7 @@ class BasePredictor(ABC):
         pass
 
 
-"""class ESNPredictor(BasePredictor):
+class ESNPredictor(BasePredictor):
     def __init__(
         self,
         input_size: int,
@@ -192,7 +192,6 @@ class ProphetPredictor(BasePredictor):
 
     def load(self, path: str):
         raise NotImplementedError
-"""
 
 
 class XGBoostPredictor(BasePredictor):
@@ -229,7 +228,7 @@ class XGBoostPredictor(BasePredictor):
         self._create_features_map(X)
         X = self._add_time_features(X)
         X = self._add_lag_features(X)
-        X = X.set_index(X.columns[0])
+        X = X.set_index("ds")
         self._xgbr.fit(X.drop("y", axis=1), X.y)
         self.is_fitted = True
 
@@ -250,12 +249,13 @@ class XGBoostPredictor(BasePredictor):
         raise NotImplementedError
         
     def _create_features_map(self, X):
-        self.features_map = X.y.to_dict()
+        X_indexed = X.set_index("ds")
+        self.features_map = X_indexed.y.to_dict()
 
     def _add_time_features(self, X):
         X_extended = X.copy()
 
-        X = X.set_index(X.columns[0])
+        X = X.set_index("ds")
     
         if self.include_hours is True:
             X_extended["hour"] = X.index.hour
@@ -273,7 +273,7 @@ class XGBoostPredictor(BasePredictor):
     def _add_lag_features(self, X):
         X_extended = X.copy()
 
-        X = X.set_index(X.columns[0])
+        X = X.set_index("ds")
 
         for lag in self.lags.items():
             X_extended[lag[0]] = (X.index - pd.Timedelta(lag[1])).map(self.features_map)
@@ -315,7 +315,7 @@ class LightGBMPredictor(BasePredictor):
         self._create_features_map(X)
         X = self._add_time_features(X)
         X = self._add_lag_features(X)
-        X = X.set_index(X.columns[0])
+        X = X.set_index("ds")
         self._lgbmr.fit(X.drop("y", axis=1), X.y)
         self.is_fitted = True
 
@@ -336,12 +336,13 @@ class LightGBMPredictor(BasePredictor):
         raise NotImplementedError
         
     def _create_features_map(self, X):
-        self.features_map = X.y.to_dict()
+        X_indexed = X.set_index("ds")
+        self.features_map = X_indexed.y.to_dict()
 
     def _add_time_features(self, X):
         X_extended = X.copy()
 
-        X = X.set_index(X.columns[0])
+        X = X.set_index("ds")
     
         if self.include_hours is True:
             X_extended["hour"] = X.index.hour
@@ -359,7 +360,7 @@ class LightGBMPredictor(BasePredictor):
     def _add_lag_features(self, X):
         X_extended = X.copy()
 
-        X = X.set_index(X.columns[0])
+        X = X.set_index("ds")
 
         for lag in self.lags.items():
             X_extended[lag[0]] = (X.index - pd.Timedelta(lag[1])).map(self.features_map)
