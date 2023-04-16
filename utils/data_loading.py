@@ -12,12 +12,14 @@ class DATASET(str, Enum):
     SUNSPOTS = "sunspots"
     ELECTRICITY = "electricity"
     MACKEY_GLASS = "mackey_glass"
+    TEMPERATURE = "temperature"
 
 
 DATA_PATH = {
     DATASET.SUNSPOTS: DATA_DIR_PATH / "Sunspots.csv",
     DATASET.ELECTRICITY: DATA_DIR_PATH / "electricity.csv",
     DATASET.MACKEY_GLASS: DATA_DIR_PATH / "mg.dat",
+    DATASET.TEMPERATURE: DATA_DIR_PATH / "temperature.csv",
 }
 
 
@@ -49,6 +51,14 @@ def load_mackey_glass(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame
     return df.iloc[:train_size], df.iloc[train_size:]
 
 
+def load_temperature(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
+    df = pd.read_csv(DATA_PATH[DATASET.TEMPERATURE])
+    df["ds"] = df.ds.astype("datetime64[m]")
+    df = df[["ds", "y"]].sort_values(["ds"]).reset_index(drop=True)
+    train_size = int(df.shape[0] * (1 - val_frac))
+    return df.iloc[:train_size], df.iloc[train_size:]
+
+
 class DataLoader:
     LAG = 1
 
@@ -62,10 +72,14 @@ class DataLoader:
             self.df_train, self.df_val = load_electricity(self.val_frac)
         elif self.name == DATASET.MACKEY_GLASS:
             self.df_train, self.df_val = load_mackey_glass(self.val_frac)
+        elif self.name == DATASET.TEMPERATURE:
+            self.df_train, self.df_val = load_temperature(self.val_frac)
         else:
             raise ValueError(f"Unknown dataset: {self.name}")
 
         self._scaler: MinMaxScaler | None = None
+        self._y_train_df: pd.DataFrame | None = None
+        self._y_val_df: pd.DataFrame | None = None
         self._X_train: np.ndarray | None = None
         self._y_train: np.ndarray | None = None
         self._y_val: np.ndarray | None = None
@@ -85,6 +99,20 @@ class DataLoader:
     @property
     def val_df(self) -> pd.DataFrame:
         return self.df_val
+
+    @property
+    def y_train_df(self) -> pd.DataFrame:
+        if self._y_train_df is None:
+            self._y_train_df = self.df_train.copy()
+            self._y_train_df.y = self.scaler.transform(self.df_train.y.values.reshape(-1, 1))
+        return self._y_train_df
+
+    @property
+    def y_val_df(self) -> pd.DataFrame:
+        if self._y_val_df is None:
+            self._y_val_df = self.df_val.copy()
+            self._y_val_df.y = self.scaler.transform(self.df_val.y.values.reshape(-1, 1))
+        return self._y_val_df
 
     @property
     def scaler(self) -> MinMaxScaler:
