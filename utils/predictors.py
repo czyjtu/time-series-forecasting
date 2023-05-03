@@ -64,7 +64,7 @@ class ESNPredictor(BasePredictor):
             output_dim=output_size,
             washout=washout,
         )
-        self._esn = esn
+        self._esn = esn.float()
 
         self.input_size = input_size
         self.output_size = output_size
@@ -79,8 +79,8 @@ class ESNPredictor(BasePredictor):
         return self._esn
 
     def fit(self, X: np.ndarray, y: np.ndarray):
-        X_train = th.from_numpy(X)
-        y_train = th.from_numpy(y)
+        X_train = th.from_numpy(X).float()
+        y_train = th.from_numpy(y).float()
         self._esn.fit(X_train, y_train)
 
         self.X_forecast = y_train[-1:]
