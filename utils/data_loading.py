@@ -23,16 +23,25 @@ DATA_PATH = {
 }
 
 
-def load_sunspots(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_sunspots(
+    val_frac: float = 0.2, test_frac: float = 0.1
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(DATA_PATH[DATASET.SUNSPOTS], index_col=0)
     df["ds"] = df.Date.astype("datetime64[m]")
     df["y"] = df["sunspots"]
     df = df[["ds", "y"]].sort_values(["ds"]).reset_index(drop=True)
-    train_size = int(df.shape[0] * (1 - val_frac))
-    return df.iloc[:train_size], df.iloc[train_size:]
+    train_size = int(df.shape[0] * (1 - val_frac - test_frac))
+    val_size = int(df.shape[0] * val_frac)
+    return (
+        df.iloc[:train_size],
+        df.iloc[train_size : val_size + train_size],
+        df.iloc[val_size + train_size :],
+    )
 
 
-def load_electricity(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_electricity(
+    val_frac: float = 0.2, test_frac: float = 0.1
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(DATA_PATH[DATASET.ELECTRICITY])
     df["ds"] = [pd.Timestamp(f"{d} {t}") for d, t in zip(df["Date"], df["Time"])]
     df["y"] = df["Consumption Amount (MWh)"].apply(
@@ -40,42 +49,80 @@ def load_electricity(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]
     )
     df = df[df["y"] > 10000]
     df = df[["ds", "y"]].sort_values(["ds"]).reset_index(drop=True)
-    train_size = int(df.shape[0] * (1 - val_frac))
-    return df.iloc[:train_size], df.iloc[train_size:]
+    train_size = int(df.shape[0] * (1 - val_frac - test_frac))
+    val_size = int(df.shape[0] * val_frac)
+    return (
+        df.iloc[:train_size],
+        df.iloc[train_size : val_size + train_size],
+        df.iloc[val_size + train_size :],
+    )
 
 
-def load_mackey_glass(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_mackey_glass(
+    val_frac: float = 0.2, test_frac: float = 0.1
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(DATA_PATH[DATASET.MACKEY_GLASS], sep=" ", index_col=0, names=["y"])
     df["ds"] = pd.date_range(start="01-01-2000", periods=df.shape[0], freq="D")
-    train_size = int(df.shape[0] * (1 - val_frac))
-    return df.iloc[:train_size], df.iloc[train_size:]
+    train_size = int(df.shape[0] * (1 - val_frac - test_frac))
+    val_size = int(df.shape[0] * val_frac)
+    return (
+        df.iloc[:train_size],
+        df.iloc[train_size : val_size + train_size],
+        df.iloc[val_size + train_size :],
+    )
 
 
-def load_temperature(val_frac: float = 0.2) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_temperature(
+    val_frac: float = 0.2, test_frac: float = 0.1
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(DATA_PATH[DATASET.TEMPERATURE])
     df["ds"] = df.ds.astype("datetime64[m]")
     df = df[["ds", "y"]].sort_values(["ds"]).reset_index(drop=True)
-    train_size = int(df.shape[0] * (1 - val_frac))
-    return df.iloc[:train_size], df.iloc[train_size:]
+    train_size = int(df.shape[0] * (1 - val_frac - test_frac))
+    val_size = int(df.shape[0] * val_frac)
+    return (
+        df.iloc[:train_size],
+        df.iloc[train_size : val_size + train_size],
+        df.iloc[val_size + train_size :],
+    )
 
 
 class DataLoader:
     LAG = 1
 
-    def __init__(self, dataset: DATASET, val_frac: float = 0.2):
+    def __init__(
+        self,
+        dataset: DATASET,
+        val_frac: float = 0.2,
+        test_frac: float = 0.1,
+        use_test: bool = False,
+    ):
         self.name = dataset
         self.val_frac = val_frac
+        self.test_frac = test_frac
 
         if self.name == DATASET.SUNSPOTS:
-            self.df_train, self.df_val = load_sunspots(self.val_frac)
+            self.df_train, self.df_val, self.df_test = load_sunspots(
+                self.val_frac, self.test_frac
+            )
         elif self.name == DATASET.ELECTRICITY:
-            self.df_train, self.df_val = load_electricity(self.val_frac)
+            self.df_train, self.df_val, self.df_test = load_electricity(
+                self.val_frac, self.test_frac
+            )
         elif self.name == DATASET.MACKEY_GLASS:
-            self.df_train, self.df_val = load_mackey_glass(self.val_frac)
+            self.df_train, self.df_val, self.df_test = load_mackey_glass(
+                self.val_frac, self.test_frac
+            )
         elif self.name == DATASET.TEMPERATURE:
-            self.df_train, self.df_val = load_temperature(self.val_frac)
+            self.df_train, self.df_val, self.df_test = load_temperature(
+                self.val_frac, self.test_frac
+            )
         else:
             raise ValueError(f"Unknown dataset: {self.name}")
+
+        if use_test:
+            self.df_train = pd.concat([self.df_train, self.df_val])
+            self.df_val = self.df_test
 
         self._scaler: MinMaxScaler | None = None
         self._y_train_df: pd.DataFrame | None = None
@@ -104,14 +151,18 @@ class DataLoader:
     def y_train_df(self) -> pd.DataFrame:
         if self._y_train_df is None:
             self._y_train_df = self.df_train.copy()
-            self._y_train_df.y = self.scaler.transform(self.df_train.y.values.reshape(-1, 1))
+            self._y_train_df.y = self.scaler.transform(
+                self.df_train.y.values.reshape(-1, 1)
+            )
         return self._y_train_df
 
     @property
     def y_val_df(self) -> pd.DataFrame:
         if self._y_val_df is None:
             self._y_val_df = self.df_val.copy()
-            self._y_val_df.y = self.scaler.transform(self.df_val.y.values.reshape(-1, 1))
+            self._y_val_df.y = self.scaler.transform(
+                self.df_val.y.values.reshape(-1, 1)
+            )
         return self._y_val_df
 
     @property
