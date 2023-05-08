@@ -17,7 +17,7 @@ from darts.dataprocessing.transformers import Scaler, MissingValuesFiller
 from darts.models import TFTModel
 from darts.utils.likelihood_models import QuantileRegression
 
-from utils import data_loading
+from utils import data_loading as dl
 
 
 class BasePredictor(ABC):
@@ -26,11 +26,11 @@ class BasePredictor(ABC):
         pass
 
     @abstractmethod
-    def fit(self, dataset: pd.DataFrame):
+    def fit(self, dataset: pd.DataFrame, *args, **kwargs):
         pass
 
     @abstractmethod
-    def forecast(self, horizon: int) -> np.ndarray:
+    def forecast(self, horizon: int, *args, **kwargs) -> np.ndarray:
         pass
 
     @abstractmethod
@@ -391,6 +391,10 @@ class LightGBMPredictor(BasePredictor):
         return X_extended
 
 
+from pytorch_lightning import Trainer
+import warnings
+
+
 class TFTPredictor(BasePredictor):
     def __init__(
         self,
@@ -403,7 +407,7 @@ class TFTPredictor(BasePredictor):
         self.forecast_horizon = 1
         self.n_samples = n_samples
 
-        self._model = TFTModel(
+        self._model: TFTModel = TFTModel(
             input_chunk_length=self.input_chunk_length,
             output_chunk_length=self.forecast_horizon,
             hidden_size=64,
@@ -421,12 +425,15 @@ class TFTPredictor(BasePredictor):
         )
 
         self._scaler: Scaler | None = None  # to be set in fit method
+        self._future_covariates: TimeSeries | None = None  # to be set in fit method
+        self._series_train: TimeSeries | None = None  # to be set in fit method
+        self.trainer = Trainer(accelerator="cpu", precision="64")
 
     @property
     def model(self) -> TFTModel:
         return self._model
 
-    def fit(self, X: pd.DataFrame):
+    def fit(self, X: pd.DataFrame, force: bool = False):
         self._scaler = Scaler()
         time_series = self._prepare_input_series(X)
         self._model.fit(time_series, verbose=True, num_loader_workers=0)
@@ -449,32 +456,94 @@ class TFTPredictor(BasePredictor):
 
 
 def get_tft_weights_covariates(
-    dataset: data_loading.DATASET, multihorizon: bool
+    dataset: dl.DATASET, multihorizon: bool
 ) -> tuple[str, list[str]]:
     # models that were trained without future covariates and with single step horizon
     models_autoregressive = {
-        data_loading.DATASET.ELECTRICITY: "electricity08:06:31",
-        data_loading.DATASET.TEMPERATURE: "temperature08:33:50",
-        data_loading.DATASET.MACKEY_GLASS: "mackey_glass08:16:47",
-        data_loading.DATASET.SUNSPOTS: "sunspots01:52:41",
+        dl.DATASET.ELECTRICITY: "electricity08:06:31",
+        dl.DATASET.TEMPERATURE: "temperature08:33:50",
+        dl.DATASET.MACKEY_GLASS: "mackey_glass08:16:47",
+        dl.DATASET.SUNSPOTS: "sunspots01:52:41",
     }
 
     # models that were trained with future covariates and with multistep horizon
     models_multihorizon = {
-        data_loading.DATASET.ELECTRICITY: "electricity_i168_h24_21_49_52_best",
-        data_loading.DATASET.TEMPERATURE: "temperature_i90_h30_23_00_27_best",
-        data_loading.DATASET.MACKEY_GLASS: "mackey_glass_i100_h50_23_06_54_best",
-        data_loading.DATASET.SUNSPOTS: "sunspots_i400_h133_21_28_12",
+        dl.DATASET.ELECTRICITY: "electricity_i168_h24_21_49_52_best",
+        dl.DATASET.TEMPERATURE: "temperature_i90_h30_23_00_27_best",
+        dl.DATASET.MACKEY_GLASS: "mackey_glass_i100_h50_23_06_54_best",
+        dl.DATASET.SUNSPOTS: "sunspots_i400_h133_21_28_12",
     }
 
     covariates = {
-        data_loading.DATASET.ELECTRICITY: ["hour", "weekday", "month", "year", "day"],
-        data_loading.DATASET.TEMPERATURE: ["year", "month", "day"],
-        data_loading.DATASET.MACKEY_GLASS: ["year", "month", "day"],
-        data_loading.DATASET.SUNSPOTS: ["year", "month"],
+        dl.DATASET.ELECTRICITY: ["hour", "weekday", "month", "year", "day"],
+        dl.DATASET.TEMPERATURE: ["year", "month", "day"],
+        dl.DATASET.MACKEY_GLASS: ["year", "month", "day"],
+        dl.DATASET.SUNSPOTS: ["year", "month"],
     }
 
     if multihorizon:
         return models_multihorizon[dataset], covariates[dataset]
     else:
         return models_autoregressive[dataset], []
+
+
+from darts import TimeSeries, concatenate
+from darts.dataprocessing.transformers import Scaler, MissingValuesFiller
+from darts.models import TFTModel
+from darts.utils.timeseries_generation import datetime_attribute_timeseries
+from darts.utils.likelihood_models import QuantileRegression
+from pytorch_lightning import Trainer
+
+
+def get_covariates(series: TimeSeries, attributes: list[str]) -> TimeSeries:
+    covariates = [
+        datetime_attribute_timeseries(series, attribute=attribute)
+        for attribute in attributes
+    ]
+    return concatenate(covariates, axis=1)
+
+
+def get_tft_predictions(
+    model_path: str, dataset: dl.DataLoader, covariates: list[str]
+) -> np.ndarray:
+    if dataset.name == dl.DATASET.ELECTRICITY:
+        dataset.train_df.drop_duplicates(subset="ds", inplace=True)
+        dataset.val_df.drop_duplicates(subset="ds", inplace=True)
+        series_train = TimeSeries.from_dataframe(
+            dataset.train_df, "ds", "y", fill_missing_dates=True, freq="H"
+        )
+        series_val = TimeSeries.from_dataframe(
+            dataset.val_df, "ds", "y", fill_missing_dates=True, freq="H"
+        )
+    else:
+        series_train = TimeSeries.from_dataframe(dataset.train_df, "ds", "y")
+        series_val = TimeSeries.from_dataframe(dataset.val_df, "ds", "y")
+
+    transformers = [Scaler().fit(series_train), MissingValuesFiller()]
+    for transformer in transformers:
+        series_train = transformer.transform(series_train).astype(np.float32)
+        series_val = transformer.transform(series_val).astype(np.float32)
+
+    if len(covariates) > 0:
+        train_covariates = get_covariates(series_train, covariates)
+        val_covariates = get_covariates(series_val, covariates)
+        cov_scaler = Scaler().fit(train_covariates)
+        train_covariates = cov_scaler.transform(train_covariates)
+        val_covariates = cov_scaler.transform(val_covariates)
+
+        future_covariates = concatenate(
+            [train_covariates, val_covariates], axis=0
+        ).astype(np.float32)
+    else:
+        future_covariates = None
+
+    model = TFTModel.load(model_path, map_location="cpu")
+    predictions = model.predict(
+        n=len(series_val),
+        num_samples=100,
+        trainer=Trainer(accelerator="cpu", precision="64"),
+        series=series_train,
+        future_covariates=future_covariates,
+    )
+
+    return predictions.mean().values()
