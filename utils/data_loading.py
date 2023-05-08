@@ -49,7 +49,9 @@ def load_electricity(
     )
     df = df[df["y"] > 10000]
     df = df[["ds", "y"]].sort_values(["ds"]).reset_index(drop=True)
-    df = df[df["ds"] < pd.Timestamp("2020-01-07 00:00:00")]
+    df = df[
+        df["ds"] < pd.Timestamp("2020-01-07 00:00:00")
+    ]  # after this time ~50% of values are missing
     train_size = int(df.shape[0] * (1 - val_frac - test_frac))
     val_size = int(df.shape[0] * val_frac)
     return (

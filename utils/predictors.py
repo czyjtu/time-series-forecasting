@@ -17,6 +17,8 @@ from darts.dataprocessing.transformers import Scaler, MissingValuesFiller
 from darts.models import TFTModel
 from darts.utils.likelihood_models import QuantileRegression
 
+from utils import data_loading
+
 
 class BasePredictor(ABC):
     @abstractproperty
@@ -213,26 +215,26 @@ class ProphetPredictor(BasePredictor):
 
 class XGBoostPredictor(BasePredictor):
     def __init__(
-            self,
-            n_estimators: int = 100,
-            max_depth: int = 5,
-            objective: str = "reg:squarederror",
-            booster: str = "gbtree",
-            include_hours: bool = True,
-            lags: dict | None = None
+        self,
+        n_estimators: int = 100,
+        max_depth: int = 5,
+        objective: str = "reg:squarederror",
+        booster: str = "gbtree",
+        include_hours: bool = True,
+        lags: dict | None = None,
     ):
         self._xgbr = XGBRegressor(
             n_estimators=n_estimators,
             max_depth=max_depth,
             objective=objective,
-            booster=booster
+            booster=booster,
         )
 
         # For features design
         self.include_hours = include_hours
         if lags:
             self.lags = lags
-        
+
         self.is_fitted: bool = False
 
     @property
@@ -240,8 +242,8 @@ class XGBoostPredictor(BasePredictor):
         if self._xgbr is None:
             raise ValueError("Must call fit before model")
         return self._xgbr
-    
-    def fit(self, X: pd.DataFrame): # DataFrame must have `y` and `ds` columns
+
+    def fit(self, X: pd.DataFrame):  # DataFrame must have `y` and `ds` columns
         self._create_features_map(X)
         X = self._add_time_features(X)
         X = self._add_lag_features(X)
@@ -249,7 +251,9 @@ class XGBoostPredictor(BasePredictor):
         self._xgbr.fit(X.drop("y", axis=1), X.y)
         self.is_fitted = True
 
-    def forecast(self, horizon: int | pd.DataFrame) -> np.ndarray: # horizon can be a DataFrame with `ds` column
+    def forecast(
+        self, horizon: int | pd.DataFrame
+    ) -> np.ndarray:  # horizon can be a DataFrame with `ds` column
         if not self.is_fitted:
             raise ValueError("Must call fit before forecast")
         if isinstance(horizon, int):
@@ -261,10 +265,10 @@ class XGBoostPredictor(BasePredictor):
         future = future.set_index(future.columns[0])
         predictions = self._xgbr.predict(future)
         return predictions
-    
+
     def load(self, path: str):
         raise NotImplementedError
-        
+
     def _create_features_map(self, X):
         X_indexed = X.set_index("ds")
         self.features_map = X_indexed.y.to_dict()
@@ -273,10 +277,10 @@ class XGBoostPredictor(BasePredictor):
         X_extended = X.copy()
 
         X = X.set_index("ds")
-    
+
         if self.include_hours is True:
             X_extended["hour"] = X.index.hour
-    
+
         X_extended["dayofweek"] = X.index.dayofweek
         X_extended["quarter"] = X.index.quarter
         X_extended["month"] = X.index.month
@@ -284,9 +288,9 @@ class XGBoostPredictor(BasePredictor):
         X_extended["dayofyear"] = X.index.dayofyear
         X_extended["dayofmonth"] = X.index.day
         X_extended["weekofyear"] = pd.Int64Index(X.index.isocalendar().week)
-    
+
         return X_extended
-    
+
     def _add_lag_features(self, X):
         X_extended = X.copy()
 
@@ -294,32 +298,32 @@ class XGBoostPredictor(BasePredictor):
 
         for lag in self.lags.items():
             X_extended[lag[0]] = (X.index - pd.Timedelta(lag[1])).map(self.features_map)
-        
+
         return X_extended
 
 
 class LightGBMPredictor(BasePredictor):
     def __init__(
-            self,
-            n_estimators: int = 100,
-            max_depth: int = 5,
-            objective: str = "mse",
-            boosting_type: str = "gbdt",
-            include_hours: bool = True,
-            lags: dict | None = None
+        self,
+        n_estimators: int = 100,
+        max_depth: int = 5,
+        objective: str = "mse",
+        boosting_type: str = "gbdt",
+        include_hours: bool = True,
+        lags: dict | None = None,
     ):
         self._lgbmr = LGBMRegressor(
             n_estimators=n_estimators,
             max_depth=max_depth,
             objective=objective,
-            boosting_type=boosting_type
+            boosting_type=boosting_type,
         )
 
         # For features design
         self.include_hours = include_hours
         if lags:
             self.lags = lags
-        
+
         self.is_fitted: bool = False
 
     @property
@@ -327,8 +331,8 @@ class LightGBMPredictor(BasePredictor):
         if self._xgbr is None:
             raise ValueError("Must call fit before model")
         return self._lgbmr
-    
-    def fit(self, X: pd.DataFrame): # DataFrame must have `y` and `ds` columns
+
+    def fit(self, X: pd.DataFrame):  # DataFrame must have `y` and `ds` columns
         self._create_features_map(X)
         X = self._add_time_features(X)
         X = self._add_lag_features(X)
@@ -336,7 +340,9 @@ class LightGBMPredictor(BasePredictor):
         self._lgbmr.fit(X.drop("y", axis=1), X.y)
         self.is_fitted = True
 
-    def forecast(self, horizon: int | pd.DataFrame) -> np.ndarray: # horizon can be a DataFrame with `ds` column
+    def forecast(
+        self, horizon: int | pd.DataFrame
+    ) -> np.ndarray:  # horizon can be a DataFrame with `ds` column
         if not self.is_fitted:
             raise ValueError("Must call fit before forecast")
         if isinstance(horizon, int):
@@ -348,10 +354,10 @@ class LightGBMPredictor(BasePredictor):
         future = future.set_index(future.columns[0])
         predictions = self._lgbmr.predict(future)
         return predictions
-    
+
     def load(self, path: str):
         raise NotImplementedError
-        
+
     def _create_features_map(self, X):
         X_indexed = X.set_index("ds")
         self.features_map = X_indexed.y.to_dict()
@@ -360,10 +366,10 @@ class LightGBMPredictor(BasePredictor):
         X_extended = X.copy()
 
         X = X.set_index("ds")
-    
+
         if self.include_hours is True:
             X_extended["hour"] = X.index.hour
-    
+
         X_extended["dayofweek"] = X.index.dayofweek
         X_extended["quarter"] = X.index.quarter
         X_extended["month"] = X.index.month
@@ -371,9 +377,9 @@ class LightGBMPredictor(BasePredictor):
         X_extended["dayofyear"] = X.index.dayofyear
         X_extended["dayofmonth"] = X.index.day
         X_extended["weekofyear"] = pd.Int64Index(X.index.isocalendar().week)
-    
+
         return X_extended
-    
+
     def _add_lag_features(self, X):
         X_extended = X.copy()
 
@@ -381,7 +387,7 @@ class LightGBMPredictor(BasePredictor):
 
         for lag in self.lags.items():
             X_extended[lag[0]] = (X.index - pd.Timedelta(lag[1])).map(self.features_map)
-        
+
         return X_extended
 
 
@@ -440,3 +446,35 @@ class TFTPredictor(BasePredictor):
         time_series = self._scaler.fit_transform(time_series)
         time_series = MissingValuesFiller().transform(time_series)
         return time_series
+
+
+def get_tft_weights_covariates(
+    dataset: data_loading.DATASET, multihorizon: bool
+) -> tuple[str, list[str]]:
+    # models that were trained without future covariates and with single step horizon
+    models_autoregressive = {
+        data_loading.DATASET.ELECTRICITY: "electricity08:06:31",
+        data_loading.DATASET.TEMPERATURE: "temperature08:33:50",
+        data_loading.DATASET.MACKEY_GLASS: "mackey_glass08:16:47",
+        data_loading.DATASET.SUNSPOTS: "sunspots01:52:41",
+    }
+
+    # models that were trained with future covariates and with multistep horizon
+    models_multihorizon = {
+        data_loading.DATASET.ELECTRICITY: "electricity_i168_h24_21_49_52_best",
+        data_loading.DATASET.TEMPERATURE: "temperature_i90_h30_23_00_27_best",
+        data_loading.DATASET.MACKEY_GLASS: "mackey_glass_i100_h50_23_06_54_best",
+        data_loading.DATASET.SUNSPOTS: "sunspots_i400_h133_21_28_12",
+    }
+
+    covariates = {
+        data_loading.DATASET.ELECTRICITY: ["hour", "weekday", "month", "year", "day"],
+        data_loading.DATASET.TEMPERATURE: ["year", "month", "day"],
+        data_loading.DATASET.MACKEY_GLASS: ["year", "month", "day"],
+        data_loading.DATASET.SUNSPOTS: ["year", "month"],
+    }
+
+    if multihorizon:
+        return models_multihorizon[dataset], covariates[dataset]
+    else:
+        return models_autoregressive[dataset], []
