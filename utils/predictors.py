@@ -1,5 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod, abstractproperty
+import os
+import time
 import pandas as pd
 import numpy as np
 from auto_esn.esn.esn import DeepESN
@@ -8,7 +10,7 @@ from auto_esn.esn.reservoir.initialization import (
     WeightInitializer,
 )
 import torch as th
-from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.arima.model import ARIMA, ARIMAResults
 from prophet import Prophet
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
@@ -119,7 +121,7 @@ class ESNPredictor(BasePredictor):
 class SARIMAPredictor(BasePredictor):
     def __init__(
         self,
-        order: tuple,  # (p, d, q)
+        order: tuple = (0, 0, 0),  # (p, d, q)
         seasonal_order: tuple = (
             0,
             0,
@@ -151,9 +153,26 @@ class SARIMAPredictor(BasePredictor):
             start=self.start_forecast, end=self.start_forecast + horizon - 1
         )
         return predictions
+    
+    def save(self, dataset_name: str) -> str:
+        if self.start_forecast is None:
+            raise ValueError("Must call fit before saving model")
+        p, d, q = self.model_params["order"]
+        P, D, Q, s = self.model_params["seasonal_order"]
+        path = f"./../models/sarima/{dataset_name}#{p}*{d}*{q}#{P}*{D}*{Q}*{s}#{self.start_forecast}#{int(time.time())}.pkl"
+        self._arima.save(path)
+        return path
 
-    def load(self, path: str):
-        raise NotImplementedError
+    def load(self, path: str) -> SARIMAPredictor:
+        filename = os.path.splitext(path)[0]
+        info = filename.split("#")
+        order = [int(v) for v in info[1].split("*")]
+        seasonal_order = [int(v) for v in info[2].split("*")]
+        start = int(info[3])
+        self._arima = ARIMAResults.load(path)
+        self.model_params = {"order": order, "seasonal_order": seasonal_order}
+        self.start_forecast = start
+        return self
 
 
 class ProphetPredictor(BasePredictor):
