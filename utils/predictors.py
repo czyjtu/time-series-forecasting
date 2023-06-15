@@ -215,20 +215,20 @@ class ProphetPredictor(BasePredictor):
 
 class XGBoostPredictor(BasePredictor):
     def __init__(
-            self,
-            n_estimators: int = 100,
-            max_depth: int = 5,
-            objective: str = "reg:squarederror",
-            booster: str = "gbtree",
-            include_hours: bool = True,
-            lags: dict | None = None,
-            mode: int = 1
+        self,
+        n_estimators: int = 100,
+        max_depth: int = 5,
+        objective: str = "reg:squarederror",
+        booster: str = "gbtree",
+        include_hours: bool = True,
+        lags: dict | None = None,
+        mode: int = 1,
     ):
         self._xgbr = XGBRegressor(
             n_estimators=n_estimators,
             max_depth=max_depth,
             objective=objective,
-            booster=booster
+            booster=booster,
         )
 
         # For features design
@@ -236,7 +236,7 @@ class XGBoostPredictor(BasePredictor):
         if lags:
             self.lags = lags
         self.mode = mode
-        
+
         self.is_fitted: bool = False
 
     @property
@@ -244,8 +244,13 @@ class XGBoostPredictor(BasePredictor):
         if self._xgbr is None:
             raise ValueError("Must call fit before model")
         return self._xgbr
-    
-    def fit(self, df: pd.DataFrame | None = None, X: np.ndarray | None = None, y: np.ndarray | None = None): # If DataFrame -> must have `y` and `ds` columns
+
+    def fit(
+        self,
+        df: pd.DataFrame | None = None,
+        X: np.ndarray | None = None,
+        y: np.ndarray | None = None,
+    ):  # If DataFrame -> must have `y` and `ds` columns
         if self.mode == 1:
             self._xgbr.fit(X, y)
         elif self.mode == 2:
@@ -258,13 +263,15 @@ class XGBoostPredictor(BasePredictor):
             self._xgbr.fit(df.drop("y", axis=1), df.y)
         else:
             raise ValueError("Invalid fitting mode.")
-        
+
         self.is_fitted = True
 
-    def forecast(self, horizon: np.ndarray | pd.DataFrame, horizon_steps: int | None = None) -> np.ndarray: # horizon can be a DataFrame with `ds` column
+    def forecast(
+        self, horizon: np.ndarray | pd.DataFrame, horizon_steps: int | None = None
+    ) -> np.ndarray:  # horizon can be a DataFrame with `ds` column
         if not self.is_fitted:
             raise ValueError("Must call fit before forecast")
-        
+
         if isinstance(horizon, np.ndarray) and horizon_steps is None:
             y_last = horizon[-1]
             predictions = [y_last]
@@ -272,7 +279,7 @@ class XGBoostPredictor(BasePredictor):
                 prediction = self._xgbr.predict(predictions[-1])
                 predictions.append(prediction)
             predictions = np.array(predictions)
-            #predictions = self._xgbr.predict(horizon)
+            # predictions = self._xgbr.predict(horizon)
         elif isinstance(horizon, pd.DataFrame):
             future = horizon
             future = self._add_time_features(future)
@@ -284,15 +291,17 @@ class XGBoostPredictor(BasePredictor):
             y_last = horizon[-horizon_steps:]
             predictions = list(y_last)
             for i in range(len(horizon) // horizon_steps):
-                prediction = self._xgbr.predict(np.array(predictions[-horizon_steps:]).reshape(-1,1))
+                prediction = self._xgbr.predict(
+                    np.array(predictions[-horizon_steps:]).reshape(-1, 1)
+                )
                 predictions.extend(prediction)
             predictions = np.array(predictions)
 
         return predictions
-    
+
     def load(self, path: str):
         raise NotImplementedError
-        
+
     def _create_features_map(self, X):
         X_indexed = X.set_index("ds")
         self.features_map = X_indexed.y.to_dict()
@@ -301,10 +310,10 @@ class XGBoostPredictor(BasePredictor):
         X_extended = X.copy()
 
         X = X.set_index("ds")
-    
+
         if self.include_hours is True:
             X_extended["hour"] = X.index.hour
-    
+
         X_extended["dayofweek"] = X.index.dayofweek
         X_extended["quarter"] = X.index.quarter
         X_extended["month"] = X.index.month
@@ -312,9 +321,9 @@ class XGBoostPredictor(BasePredictor):
         X_extended["dayofyear"] = X.index.dayofyear
         X_extended["dayofmonth"] = X.index.day
         X_extended["weekofyear"] = pd.Int64Index(X.index.isocalendar().week)
-    
+
         return X_extended
-    
+
     def _add_lag_features(self, X):
         X_extended = X.copy()
 
@@ -322,26 +331,26 @@ class XGBoostPredictor(BasePredictor):
 
         for lag in self.lags.items():
             X_extended[lag[0]] = (X.index - pd.Timedelta(lag[1])).map(self.features_map)
-        
+
         return X_extended
 
 
 class LightGBMPredictor(BasePredictor):
     def __init__(
-            self,
-            n_estimators: int = 100,
-            max_depth: int = 5,
-            objective: str = "mse",
-            boosting_type: str = "gbdt",
-            include_hours: bool = True,
-            lags: dict | None = None,
-            mode: int = 1
+        self,
+        n_estimators: int = 100,
+        max_depth: int = 5,
+        objective: str = "mse",
+        boosting_type: str = "gbdt",
+        include_hours: bool = True,
+        lags: dict | None = None,
+        mode: int = 1,
     ):
         self._lgbmr = LGBMRegressor(
             n_estimators=n_estimators,
             max_depth=max_depth,
             objective=objective,
-            boosting_type=boosting_type
+            boosting_type=boosting_type,
         )
 
         # For features design
@@ -349,7 +358,7 @@ class LightGBMPredictor(BasePredictor):
         if lags:
             self.lags = lags
         self.mode = mode
-        
+
         self.is_fitted: bool = False
 
     @property
@@ -357,8 +366,13 @@ class LightGBMPredictor(BasePredictor):
         if self._lgbmr is None:
             raise ValueError("Must call fit before model")
         return self._lgbmr
-    
-    def fit(self, df: pd.DataFrame | None = None, X: np.ndarray | None = None, y: np.ndarray | None = None): # If DataFrame -> must have `y` and `ds` columns
+
+    def fit(
+        self,
+        df: pd.DataFrame | None = None,
+        X: np.ndarray | None = None,
+        y: np.ndarray | None = None,
+    ):  # If DataFrame -> must have `y` and `ds` columns
         if self.mode == 1:
             self._lgbmr.fit(X, y)
         elif self.mode == 2:
@@ -371,21 +385,23 @@ class LightGBMPredictor(BasePredictor):
             self._lgbmr.fit(df.drop("y", axis=1), df.y)
         else:
             raise ValueError("Invalid fitting mode.")
-        
+
         self.is_fitted = True
 
-    def forecast(self, horizon: np.ndarray | pd.DataFrame, horizon_steps: int | None = None) -> np.ndarray: # horizon can be a DataFrame with `ds` column
+    def forecast(
+        self, horizon: np.ndarray | pd.DataFrame, horizon_steps: int | None = None
+    ) -> np.ndarray:  # horizon can be a DataFrame with `ds` column
         if not self.is_fitted:
             raise ValueError("Must call fit before forecast")
-        
+
         if isinstance(horizon, np.ndarray) and horizon_steps is None:
             y_last = horizon[-1]
             predictions = [y_last]
             for i in range(len(horizon) - 1):
-                prediction = self._lgbmr.predict(predictions[-1].reshape(-1,1))
+                prediction = self._lgbmr.predict(predictions[-1].reshape(-1, 1))
                 predictions.append(prediction)
             predictions = np.array(predictions)
-            #predictions = self._xgbr.predict(horizon)
+            # predictions = self._xgbr.predict(horizon)
         elif isinstance(horizon, pd.DataFrame):
             future = horizon
             future = self._add_time_features(future)
@@ -397,15 +413,17 @@ class LightGBMPredictor(BasePredictor):
             y_last = horizon[-horizon_steps:]
             predictions = list(y_last)
             for i in range(len(horizon) // horizon_steps):
-                prediction = self._lgbmr.predict(np.array(predictions[-horizon_steps:]).reshape(-1,1))
+                prediction = self._lgbmr.predict(
+                    np.array(predictions[-horizon_steps:]).reshape(-1, 1)
+                )
                 predictions.extend(prediction)
             predictions = np.array(predictions)
 
         return predictions
-    
+
     def load(self, path: str):
         raise NotImplementedError
-        
+
     def _create_features_map(self, X):
         X_indexed = X.set_index("ds")
         self.features_map = X_indexed.y.to_dict()
@@ -414,10 +432,10 @@ class LightGBMPredictor(BasePredictor):
         X_extended = X.copy()
 
         X = X.set_index("ds")
-    
+
         if self.include_hours is True:
             X_extended["hour"] = X.index.hour
-    
+
         X_extended["dayofweek"] = X.index.dayofweek
         X_extended["quarter"] = X.index.quarter
         X_extended["month"] = X.index.month
@@ -425,9 +443,9 @@ class LightGBMPredictor(BasePredictor):
         X_extended["dayofyear"] = X.index.dayofyear
         X_extended["dayofmonth"] = X.index.day
         X_extended["weekofyear"] = pd.Int64Index(X.index.isocalendar().week)
-    
+
         return X_extended
-    
+
     def _add_lag_features(self, X):
         X_extended = X.copy()
 
@@ -435,7 +453,7 @@ class LightGBMPredictor(BasePredictor):
 
         for lag in self.lags.items():
             X_extended[lag[0]] = (X.index - pd.Timedelta(lag[1])).map(self.features_map)
-        
+
         return X_extended
 
 
@@ -551,9 +569,9 @@ def get_covariates(series: TimeSeries, attributes: list[str]) -> TimeSeries:
     return concatenate(covariates, axis=1)
 
 
-def get_tft_predictions(
-    model_path: str, dataset: dl.DataLoader, covariates: list[str]
-) -> np.ndarray:
+def get_series_from_dataset(
+    dataset: dl.DataLoader, covariates: list[str]
+) -> tuple[TimeSeries, TimeSeries, TimeSeries | None]:
     if dataset.name == dl.DATASET.ELECTRICITY:
         dataset.train_df.drop_duplicates(subset="ds", inplace=True)
         dataset.val_df.drop_duplicates(subset="ds", inplace=True)
@@ -584,6 +602,16 @@ def get_tft_predictions(
         ).astype(np.float32)
     else:
         future_covariates = None
+
+    return series_train, series_val, future_covariates
+
+
+def get_tft_predictions(
+    model_path: str, dataset: dl.DataLoader, covariates: list[str]
+) -> np.ndarray:
+    series_train, series_val, future_covariates = get_series_from_dataset(
+        dataset, covariates
+    )
 
     model = TFTModel.load(model_path, map_location="cpu")
     predictions = model.predict(
